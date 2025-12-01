@@ -1,6 +1,8 @@
 mod state;
 mod scripting;
 mod commands;
+mod proxy;
+mod fingerprint;
 
 use state::AppState;
 use std::sync::{Arc, Mutex};
@@ -21,6 +23,7 @@ pub fn run() {
             commands::script_callback,
             commands::get_profiles,
             commands::set_profile,
+            commands::save_profile_config,
             commands::list_scripts,
             commands::save_script,
             commands::read_script

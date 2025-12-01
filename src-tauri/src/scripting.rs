@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::sync::mpsc::channel;
 use uuid::Uuid;
-use crate::state::AppState;
+use crate::state::{AppState, ProxyConfig};
+use url::Url;
 
 #[derive(Clone)]
 pub struct BrowserApi {
@@ -58,7 +59,6 @@ impl BrowserApi {
 
         let _ = self.window.eval(&js);
 
-        // Block until result
         let _ = rx.recv();
     }
 
@@ -86,10 +86,40 @@ impl BrowserApi {
             Err(_) => "".to_string(),
         }
     }
+
+    pub fn set_proxy(&mut self, proxy_url: &str) {
+        if let Ok(url) = Url::parse(proxy_url) {
+            let protocol = url.scheme().to_string();
+            let host = url.host_str().unwrap_or("").to_string();
+            let port = url.port().unwrap_or(80);
+            let username = if url.username().is_empty() { None } else { Some(url.username().to_string()) };
+            let password = url.password().map(|s| s.to_string());
+
+            let config = ProxyConfig { protocol, host, port, username, password };
+
+            {
+                let mut state = self.state.lock().unwrap();
+                if let Some(profile) = &mut state.current_profile {
+                    profile.proxy = Some(config);
+                }
+            }
+
+            // Restart Proxy
+            let app = self.window.app_handle().clone();
+            let state = self.state.clone();
+            tauri::async_runtime::block_on(async {
+                crate::proxy::restart_proxy(app, state).await;
+            });
+        }
+    }
+
+    pub fn get_last_request(&mut self) -> String {
+        let state = self.state.lock().unwrap();
+        state.last_request.clone().unwrap_or_default()
+    }
 }
 
 pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
-    // Clone for the thread
     let app_handle = app_handle.clone();
 
     thread::spawn(move || {
@@ -105,12 +135,13 @@ pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppSta
 
         let browser_api = BrowserApi::new(window.clone(), state.clone());
 
-        // Register the type and functions
         engine.register_type_with_name::<BrowserApi>("BrowserApi")
             .register_fn("navigate", |api: &mut BrowserApi, url: &str| api.navigate(url))
             .register_fn("click", |api: &mut BrowserApi, selector: &str| api.click(selector))
             .register_fn("wait_for_selector", |api: &mut BrowserApi, selector: &str| api.wait_for_selector(selector))
-            .register_fn("extract_text", |api: &mut BrowserApi, selector: &str| api.extract_text(selector));
+            .register_fn("extract_text", |api: &mut BrowserApi, selector: &str| api.extract_text(selector))
+            .register_fn("set_proxy", |api: &mut BrowserApi, url: &str| api.set_proxy(url))
+            .register_fn("get_last_request", |api: &mut BrowserApi| api.get_last_request());
 
         let mut scope = Scope::new();
         scope.push("browser", browser_api);
