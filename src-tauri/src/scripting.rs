@@ -175,6 +175,7 @@ pub fn execute(
     app_handle: Option<AppHandle>
 ) -> Result<rhai::Dynamic, Box<rhai::EvalAltResult>> {
     let mut engine = Engine::new();
+    let state_clone = state.clone();
     let browser_api = BrowserApi::new(window, state);
 
     register_api(&mut engine);
@@ -183,6 +184,14 @@ pub fn execute(
     if let Some(app) = app_handle {
         engine.on_print(move |s| {
             let _ = app.emit("log_output", s);
+            // Also save to AppState
+            if let Ok(mut st) = state_clone.lock() {
+                st.script_logs.push(s.to_string());
+                // Keep log size manageable?
+                if st.script_logs.len() > 1000 {
+                    st.script_logs.remove(0);
+                }
+            }
         });
     } else {
         engine.on_print(|s| {
