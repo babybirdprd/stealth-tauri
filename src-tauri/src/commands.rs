@@ -54,8 +54,8 @@ fn save_profiles_to_disk(profiles: &[Profile]) {
     let _ = fs::write(path, json);
 }
 
-fn ensure_target_window(app: &AppHandle) -> Option<WebviewWindow> {
-    if let Some(w) = app.get_webview_window("target") {
+pub fn ensure_target_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
+    if let Some(w) = app.get_webview_window(label) {
         return Some(w);
     }
 
@@ -65,7 +65,7 @@ fn ensure_target_window(app: &AppHandle) -> Option<WebviewWindow> {
     let url = Url::parse("about:blank").unwrap();
     let mut builder = WebviewWindowBuilder::new(
         app,
-        "target",
+        label,
         WebviewUrl::External(url)
     )
     .title("Phantom Browser Target")
@@ -116,8 +116,9 @@ pub async fn execute_script(script: String, state: State<'_, Arc<Mutex<AppState>
         proxy::restart_proxy(app.clone(), state.inner().clone()).await;
     }
 
-    if ensure_target_window(&app).is_some() {
-        scripting::run_script(script, app, state.inner().clone());
+    let label = "target-studio";
+    if ensure_target_window(&app, label).is_some() {
+        scripting::run_script(script, app, state.inner().clone(), label.to_string());
         Ok(())
     } else {
         Err("Could not create target window".into())
@@ -152,7 +153,7 @@ pub async fn set_profile(profile_name: String, state: State<'_, Arc<Mutex<AppSta
         proxy::restart_proxy(app.clone(), state.inner().clone()).await;
 
         // Close target window if open, so it gets recreated with new UA/Proxy on next run
-        if let Some(w) = app.get_webview_window("target") {
+        if let Some(w) = app.get_webview_window("target-studio") {
             let _ = w.close();
         }
     }
@@ -187,7 +188,7 @@ pub async fn save_profile_config(profile: Profile, state: State<'_, Arc<Mutex<Ap
         proxy::restart_proxy(app.clone(), state.inner().clone()).await;
 
         // Close window to force refresh
-        if let Some(w) = app.get_webview_window("target") {
+        if let Some(w) = app.get_webview_window("target-studio") {
             let _ = w.close();
         }
     }

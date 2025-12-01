@@ -4,16 +4,18 @@ import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 import { NetworkTab } from "./components/NetworkTab";
 import { SettingsTab, Profile } from "./components/SettingsTab";
+import { JobsTab } from "./components/JobsTab";
 
 function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedProfileName, setSelectedProfileName] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"editor" | "network" | "settings">("editor");
+  const [activeTab, setActiveTab] = useState<"editor" | "network" | "settings" | "jobs">("editor");
 
   const [scripts, setScripts] = useState<string[]>([]);
   const [scriptName, setScriptName] = useState<string>("untitled.rhai");
   const [scriptContent, setScriptContent] = useState<string>("");
   const [logs, setLogs] = useState<string[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -43,8 +45,13 @@ function App() {
         setLogs(prev => [...prev, event.payload]);
     });
 
+    const unlistenUpdate = listen<string>("script_update", (event) => {
+        setScriptContent(event.payload);
+    });
+
     return () => {
         unlisten.then(f => f());
+        unlistenUpdate.then(f => f());
     }
   }, []);
 
@@ -94,6 +101,22 @@ function App() {
       setProfiles(prev => prev.map(p => p.name === updated.name ? updated : p));
   };
 
+  const toggleRecording = async () => {
+    if (isRecording) {
+        await invoke("stop_recording");
+        setIsRecording(false);
+        setLogs(prev => [...prev, "Recording stopped"]);
+    } else {
+        try {
+            await invoke("start_recording");
+            setIsRecording(true);
+            setLogs(prev => [...prev, "Recording started... Click in the target window."]);
+        } catch(e) {
+            setLogs(prev => [...prev, `Error recording: ${e}`]);
+        }
+    }
+  };
+
   const currentProfile = profiles.find(p => p.name === selectedProfileName) || null;
 
   return (
@@ -124,6 +147,12 @@ function App() {
                     className={`text-left px-3 py-2 rounded text-sm ${activeTab === "settings" ? "bg-blue-600 text-white" : "text-gray-400 hover:bg-gray-700"}`}
                 >
                     Settings
+                </button>
+                <button
+                    onClick={() => setActiveTab("jobs")}
+                    className={`text-left px-3 py-2 rounded text-sm ${activeTab === "jobs" ? "bg-blue-600 text-white" : "text-gray-400 hover:bg-gray-700"}`}
+                >
+                    Jobs
                 </button>
             </div>
 
@@ -172,6 +201,13 @@ function App() {
 
                 {activeTab === "editor" && (
                     <div className="flex space-x-2">
+                        <button
+                            onClick={toggleRecording}
+                            className={`px-3 py-1 rounded text-sm font-bold flex items-center space-x-1 ${isRecording ? "bg-red-600 animate-pulse" : "bg-gray-700 hover:bg-gray-600"}`}
+                        >
+                            <div className={`w-2 h-2 rounded-full ${isRecording ? "bg-white" : "bg-red-500"}`}></div>
+                            <span>{isRecording ? "REC" : "Record"}</span>
+                        </button>
                         <button onClick={saveScript} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm">Save</button>
                         <button onClick={runScript} className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-bold">RUN</button>
                     </div>
@@ -212,6 +248,8 @@ function App() {
                         onUpdate={handleProfileUpdate}
                     />
                 )}
+
+                {activeTab === "jobs" && <JobsTab />}
             </div>
         </div>
     </div>

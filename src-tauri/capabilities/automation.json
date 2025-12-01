@@ -1,7 +1,7 @@
 {
   "identifier": "automation",
   "description": "Automation capabilities for the target webview",
-  "windows": ["target"],
+  "windows": ["target", "target-*", "headless-*", "job-*"],
   "permissions": [
     "core:default",
     "core:event:default",
