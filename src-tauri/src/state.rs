@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use serde_json::Value;
 use tokio::sync::oneshot;
+use tokio_cron_scheduler::JobScheduler;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyConfig {
@@ -37,6 +39,9 @@ pub struct AppState {
     pub ca_cert: Option<String>,
     pub proxy_shutdown_tx: Option<oneshot::Sender<()>>,
     pub last_request: Option<String>,
+    pub recorded_script: String,
+    pub scheduler: Option<Arc<JobScheduler>>,
+    pub is_recording: bool,
 }
 
 impl Default for AppState {
@@ -51,6 +56,9 @@ impl Default for AppState {
             ca_cert: None,
             proxy_shutdown_tx: None,
             last_request: None,
+            recorded_script: String::new(),
+            scheduler: None,
+            is_recording: false,
         }
     }
 }

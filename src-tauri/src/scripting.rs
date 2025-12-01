@@ -87,6 +87,20 @@ impl BrowserApi {
         }
     }
 
+    pub fn type_text(&mut self, selector: &str, text: &str) {
+         let js = format!(r#"
+            (function() {{
+                let el = document.querySelector('{}');
+                if (el) {{
+                    el.value = '{}';
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+            }})()
+         "#, selector, text);
+         let _ = self.window.eval(&js);
+    }
+
     pub fn set_proxy(&mut self, proxy_url: &str) {
         if let Ok(url) = Url::parse(proxy_url) {
             let protocol = url.scheme().to_string();
@@ -119,34 +133,20 @@ impl BrowserApi {
     }
 }
 
-pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
+pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppState>>, window_label: String) {
     let app_handle = app_handle.clone();
 
     thread::spawn(move || {
-        let window = match app_handle.get_webview_window("target") {
+        let window = match app_handle.get_webview_window(&window_label) {
             Some(w) => w,
             None => {
-                let _ = app_handle.emit("log_output", "Error: Target window not found");
+                let _ = app_handle.emit("log_output", format!("Error: Target window '{}' not found", window_label));
                 return;
             }
         };
 
-        let mut engine = Engine::new();
-
-        let browser_api = BrowserApi::new(window.clone(), state.clone());
-
-        engine.register_type_with_name::<BrowserApi>("BrowserApi")
-            .register_fn("navigate", |api: &mut BrowserApi, url: &str| api.navigate(url))
-            .register_fn("click", |api: &mut BrowserApi, selector: &str| api.click(selector))
-            .register_fn("wait_for_selector", |api: &mut BrowserApi, selector: &str| api.wait_for_selector(selector))
-            .register_fn("extract_text", |api: &mut BrowserApi, selector: &str| api.extract_text(selector))
-            .register_fn("set_proxy", |api: &mut BrowserApi, url: &str| api.set_proxy(url))
-            .register_fn("get_last_request", |api: &mut BrowserApi| api.get_last_request());
-
-        let mut scope = Scope::new();
-        scope.push("browser", browser_api);
-
-        match engine.run_with_scope(&mut scope, &script) {
+        // We use the shared execute logic, passing the app_handle for log emission
+        match execute(script, window, state, Some(app_handle.clone())) {
             Ok(_) => {
                  let _ = app_handle.emit("log_output", "Script finished successfully");
             },
@@ -155,4 +155,43 @@ pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppSta
             },
         }
     });
+}
+
+fn register_api(engine: &mut Engine) {
+    engine.register_type_with_name::<BrowserApi>("BrowserApi")
+        .register_fn("navigate", |api: &mut BrowserApi, url: &str| api.navigate(url))
+        .register_fn("click", |api: &mut BrowserApi, selector: &str| api.click(selector))
+        .register_fn("wait_for_selector", |api: &mut BrowserApi, selector: &str| api.wait_for_selector(selector))
+        .register_fn("extract_text", |api: &mut BrowserApi, selector: &str| api.extract_text(selector))
+        .register_fn("type", |api: &mut BrowserApi, selector: &str, text: &str| api.type_text(selector, text))
+        .register_fn("set_proxy", |api: &mut BrowserApi, url: &str| api.set_proxy(url))
+        .register_fn("get_last_request", |api: &mut BrowserApi| api.get_last_request());
+}
+
+pub fn execute(
+    script: String,
+    window: WebviewWindow,
+    state: Arc<Mutex<AppState>>,
+    app_handle: Option<AppHandle>
+) -> Result<rhai::Dynamic, Box<rhai::EvalAltResult>> {
+    let mut engine = Engine::new();
+    let browser_api = BrowserApi::new(window, state);
+
+    register_api(&mut engine);
+
+    // Handle print/logging
+    if let Some(app) = app_handle {
+        engine.on_print(move |s| {
+            let _ = app.emit("log_output", s);
+        });
+    } else {
+        engine.on_print(|s| {
+            println!("{}", s);
+        });
+    }
+
+    let mut scope = Scope::new();
+    scope.push("browser", browser_api);
+
+    engine.eval_with_scope::<rhai::Dynamic>(&mut scope, &script)
 }
