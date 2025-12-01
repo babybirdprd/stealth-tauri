@@ -130,7 +130,7 @@ impl BrowserApi {
             let app = self.window.app_handle().clone();
             let state = self.state.clone();
             tauri::async_runtime::block_on(async {
-                crate::proxy::restart_proxy(app, state).await;
+                let _ = crate::proxy::restart_proxy(app, state).await;
             });
         }
     }
@@ -145,9 +145,8 @@ pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppSta
     let app_handle = app_handle.clone();
 
     thread::spawn(move || {
-        // Give Webview2 on Windows time to initialize the JS context
-        // This fixes the race condition where eval() is called before the webview is ready
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        // 1. Initialization Delay (Increased to ensure Webview2 is ready)
+        std::thread::sleep(std::time::Duration::from_millis(2000));
 
         let window = match app_handle.get_webview_window(&window_label) {
             Some(w) => w,
@@ -157,7 +156,13 @@ pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppSta
             }
         };
 
-        // We use the shared execute logic, passing the app_handle for log emission
+        // 2. Visual Warm-up
+        let _ = window.eval("window.location.href = 'data:text/html,<html><style>body{background:#222;color:#888;display:flex;justify-content:center;align-items:center;height:100vh;font-family:monospace;}</style><body>Initializing Secure Tunnel...</body></html>';");
+
+        // 3. Wait for warm-up to render and proxy to settle
+        std::thread::sleep(std::time::Duration::from_millis(800));
+
+        // 4. Run User Script
         match execute(script, window, state, Some(app_handle.clone())) {
             Ok(_) => {
                  let _ = app_handle.emit("log_output", "Script finished successfully");
