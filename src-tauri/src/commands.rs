@@ -104,8 +104,8 @@ pub fn ensure_target_window(app: &AppHandle, label: &str) -> Option<WebviewWindo
     {
         if state.proxy_port > 0 {
             let args = format!(
-                "--proxy-server=127.0.0.1:{} --ignore-certificate-errors --allow-insecure-localhost",
-                state.proxy_port
+                "--proxy-server=\"http=127.0.0.1:{};https=127.0.0.1:{}\" --ignore-certificate-errors --allow-insecure-localhost --disable-web-security",
+                state.proxy_port, state.proxy_port
             );
             builder = builder.additional_browser_args(&args);
         }
