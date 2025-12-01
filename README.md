@@ -21,7 +21,7 @@ Control your Headless Desktop instance remotely.
     - `POST /stop` (Stop running jobs)
 
 ### Embedded Examples ("Starter Pack")
-Includes pre-loaded Rhai scripts for common scenarios (Infinite Scroll, Scraper, Login, etc.).
+Includes pre-loaded Rhai scripts for common scenarios (Infinite Scroll, Scraper, Login, etc.). Verified on Mobile Layout.
 
 ## Development
 
