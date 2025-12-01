@@ -8,6 +8,20 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Wait for a TCP port to become available (proxy ready check)
+/// Returns true if port is listening, false after timeout
+#[allow(dead_code)]
+async fn wait_for_port(port: u16) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed().as_secs() < 3 {
+        if std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    false
+}
+
 fn get_profiles_path() -> PathBuf {
     Path::new("profiles.json").to_path_buf()
 }
@@ -87,13 +101,16 @@ pub fn ensure_target_window(app: &AppHandle, label: &str) -> Option<WebviewWindo
     }
 
     // 3. Proxy Configuration
-    if state.proxy_port > 0 {
-        let proxy_url = Url::parse(&format!("http://127.0.0.1:{}", state.proxy_port)).unwrap();
-        builder = builder.proxy_url(proxy_url);
-
-        // Ignore certificate errors
-        builder = builder.additional_browser_args("--ignore-certificate-errors");
-    }
+    // DISABLED FOR DEBUGGING: Uncomment to re-enable proxy support
+    // The blank screen issue is likely caused by the proxy not being ready
+    // or certificate rejection by Webview2
+    // if state.proxy_port > 0 {
+    //     let proxy_url = Url::parse(&format!("http://127.0.0.1:{}", state.proxy_port)).unwrap();
+    //     builder = builder.proxy_url(proxy_url);
+    //
+    //     // Ignore certificate errors
+    //     builder = builder.additional_browser_args("--ignore-certificate-errors");
+    // }
 
     match builder.build() {
         Ok(w) => Some(w),
@@ -114,6 +131,8 @@ pub async fn execute_script(script: String, state: State<'_, Arc<Mutex<AppState>
 
     if needs_start {
         proxy::restart_proxy(app.clone(), state.inner().clone()).await;
+        // Wait for the TCP listener to become active before opening the window
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
     let label = "target-studio";

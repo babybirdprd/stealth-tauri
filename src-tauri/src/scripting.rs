@@ -101,6 +101,14 @@ impl BrowserApi {
          let _ = self.window.eval(&js);
     }
 
+    pub fn sleep(&mut self, ms: i64) {
+        std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+    }
+
+    pub fn wait(&mut self, ms: i64) {
+        self.sleep(ms);
+    }
+
     pub fn set_proxy(&mut self, proxy_url: &str) {
         if let Ok(url) = Url::parse(proxy_url) {
             let protocol = url.scheme().to_string();
@@ -137,6 +145,10 @@ pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppSta
     let app_handle = app_handle.clone();
 
     thread::spawn(move || {
+        // Give Webview2 on Windows time to initialize the JS context
+        // This fixes the race condition where eval() is called before the webview is ready
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+
         let window = match app_handle.get_webview_window(&window_label) {
             Some(w) => w,
             None => {
@@ -164,6 +176,8 @@ fn register_api(engine: &mut Engine) {
         .register_fn("wait_for_selector", |api: &mut BrowserApi, selector: &str| api.wait_for_selector(selector))
         .register_fn("extract_text", |api: &mut BrowserApi, selector: &str| api.extract_text(selector))
         .register_fn("type", |api: &mut BrowserApi, selector: &str, text: &str| api.type_text(selector, text))
+        .register_fn("sleep", |api: &mut BrowserApi, ms: i64| api.sleep(ms))
+        .register_fn("wait", |api: &mut BrowserApi, ms: i64| api.wait(ms))
         .register_fn("set_proxy", |api: &mut BrowserApi, url: &str| api.set_proxy(url))
         .register_fn("get_last_request", |api: &mut BrowserApi| api.get_last_request());
 }
