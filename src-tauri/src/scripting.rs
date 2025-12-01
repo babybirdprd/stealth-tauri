@@ -145,8 +145,8 @@ pub fn run_script(script: String, app_handle: AppHandle, state: Arc<Mutex<AppSta
     let app_handle = app_handle.clone();
 
     thread::spawn(move || {
-        // 1. Initialization Delay
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // 1. Initialization Delay (Increased to ensure Webview2 is ready)
+        std::thread::sleep(std::time::Duration::from_millis(2000));
 
         let window = match app_handle.get_webview_window(&window_label) {
             Some(w) => w,
