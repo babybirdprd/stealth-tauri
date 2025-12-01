@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 
 /// Wait for a TCP port to become available (proxy ready check)
 /// Returns true if port is listening, false after timeout
-#[allow(dead_code)]
 async fn wait_for_port(port: u16) -> bool {
     let start = std::time::Instant::now();
     while start.elapsed().as_secs() < 3 {
@@ -101,16 +100,15 @@ pub fn ensure_target_window(app: &AppHandle, label: &str) -> Option<WebviewWindo
     }
 
     // 3. Proxy Configuration
-    // DISABLED FOR DEBUGGING: Uncomment to re-enable proxy support
-    // The blank screen issue is likely caused by the proxy not being ready
-    // or certificate rejection by Webview2
-    // if state.proxy_port > 0 {
-    //     let proxy_url = Url::parse(&format!("http://127.0.0.1:{}", state.proxy_port)).unwrap();
-    //     builder = builder.proxy_url(proxy_url);
-    //
-    //     // Ignore certificate errors
-    //     builder = builder.additional_browser_args("--ignore-certificate-errors");
-    // }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if state.proxy_port > 0 {
+            let proxy_arg = format!("--proxy-server=http=127.0.0.1:{}", state.proxy_port);
+            builder = builder.additional_browser_args(&proxy_arg);
+            builder = builder.additional_browser_args("--ignore-certificate-errors");
+            builder = builder.additional_browser_args("--allow-insecure-localhost");
+        }
+    }
 
     match builder.build() {
         Ok(w) => Some(w),
@@ -123,16 +121,31 @@ pub fn ensure_target_window(app: &AppHandle, label: &str) -> Option<WebviewWindo
 
 #[tauri::command]
 pub async fn execute_script(script: String, state: State<'_, Arc<Mutex<AppState>>>, app: AppHandle) -> Result<(), String> {
-    // Ensure proxy is running if not already
-    let needs_start = {
-        let s = state.lock().unwrap();
-        s.proxy_port == 0
-    };
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        // 1. Ensure Proxy is Running
+        let needs_start = {
+            let s = state.lock().unwrap();
+            s.proxy_port == 0
+        };
 
-    if needs_start {
-        proxy::restart_proxy(app.clone(), state.inner().clone()).await;
-        // Wait for the TCP listener to become active before opening the window
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if needs_start {
+            if !proxy::restart_proxy(app.clone(), state.inner().clone()).await {
+                return Err("Failed to start proxy server".into());
+            }
+        }
+
+        // 2. Double Check TCP (The "Robust" Check)
+        let port = {
+            let s = state.lock().unwrap();
+            s.proxy_port
+        };
+
+        if port > 0 {
+             if !wait_for_port(port).await {
+                return Err("Proxy port failed to open".into());
+            }
+        }
     }
 
     let label = "target-studio";
@@ -169,7 +182,7 @@ pub async fn set_profile(profile_name: String, state: State<'_, Arc<Mutex<AppSta
         }
 
         // Restart Proxy for new profile
-        proxy::restart_proxy(app.clone(), state.inner().clone()).await;
+        let _ = proxy::restart_proxy(app.clone(), state.inner().clone()).await;
 
         // Close target window if open, so it gets recreated with new UA/Proxy on next run
         if let Some(w) = app.get_webview_window("target-studio") {
@@ -204,7 +217,7 @@ pub async fn save_profile_config(profile: Profile, state: State<'_, Arc<Mutex<Ap
 
     if is_current {
         // Restart Proxy to apply new settings
-        proxy::restart_proxy(app.clone(), state.inner().clone()).await;
+        let _ = proxy::restart_proxy(app.clone(), state.inner().clone()).await;
 
         // Close window to force refresh
         if let Some(w) = app.get_webview_window("target-studio") {
